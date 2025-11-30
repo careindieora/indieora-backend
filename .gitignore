@@ -1,0 +1,27 @@
+# Node modules
+node_modules/
+
+# Environment files (VERY important)
+.env
+.env.local
+
+# Build / temp files
+dist/
+tmp/
+logs/
+*.log
+
+# Upload temp folders (if any)
+uploads/
+
+# OS/System files
+.DS_Store
+Thumbs.db
+
+# IDE folders
+.vscode/
+.idea/
+
+# Lock files (optional)
+package-lock.json
+yarn.lock
