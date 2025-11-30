@@ -3,12 +3,12 @@ import mongoose from 'mongoose';
 
 const ProductSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  slug: { type: String, index: true },           // seo friendly
-  description: { type: String },
+  slug: { type: String, index: true },
+  description: String,
   price: { type: Number, required: true },
   currency: { type: String, default: 'INR' },
-  category: { type: String },                    // category id or name
-  images: { type: [String], default: [] },       // urls
+  category: String,
+  images: { type: [String], default: [] },
   tags: { type: [String], default: [] },
   seo: {
     metaTitle: String,

@@ -2,8 +2,8 @@
 import mongoose from 'mongoose';
 
 const CategorySchema = new mongoose.Schema({
-  id: { type: String, required: true, unique: true }, // e.g. 'glass'
-  title: { type: String, required: true },            // e.g. 'Glass'
+  id: { type: String, required: true, unique: true },
+  title: { type: String, required: true },
   slug: { type: String, index: true },
   description: String,
   seo: {
