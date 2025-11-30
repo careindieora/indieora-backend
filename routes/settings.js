@@ -5,38 +5,41 @@ import verifyToken from '../middleware/verifyToken.js';
 
 const router = express.Router();
 
-// GET /api/settings  -> public (returns latest settings or empty)
+// get settings (public)
 router.get('/', async (req, res) => {
   try {
-    const s = await Setting.findOne().sort({ createdAt: -1 }).lean();
-    if (!s) return res.json({});
+    // return the first settings document or defaults
+    let s = await Setting.findOne().lean();
+    if (!s) {
+      s = await Setting.create({}); // creates with defaults
+    }
     res.json(s);
   } catch (err) {
-    console.error("GET /api/settings error:", err);
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// PUT /api/settings  -> admin only (update or create)
+// update settings (protected)
 router.put('/', verifyToken, async (req, res) => {
   try {
-    // require admin role
-    if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Forbidden' });
-
-    const payload = req.body || {};
+    const body = req.body;
     let s = await Setting.findOne();
     if (!s) {
-      s = new Setting(payload);
-    } else {
-      s.announcement = payload.announcement ?? s.announcement;
-      s.logoUrl = payload.logoUrl ?? s.logoUrl;
-      s.nav = Array.isArray(payload.nav) ? payload.nav : s.nav;
-      s.categories = Array.isArray(payload.categories) ? payload.categories : s.categories;
+      s = new Setting(body);
+      s.updatedBy = req.user?.id;
+      await s.save();
+      return res.json(s);
     }
+    // update fields
+    s.siteTitle = body.siteTitle ?? s.siteTitle;
+    s.headerText = body.headerText ?? s.headerText;
+    s.logoUrl = body.logoUrl ?? s.logoUrl;
+    s.updatedBy = req.user?.id;
     await s.save();
     res.json(s);
   } catch (err) {
-    console.error("PUT /api/settings error:", err);
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
