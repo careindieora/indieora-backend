@@ -17,6 +17,7 @@ import settingsRoutes from './routes/settings.js';
 import uploadRoutes from './routes/upload.js';
 import authRoutes from './routes/auth.js';
 import adminStatsRoutes from './routes/adminStats.js';
+import adminAnalyticsRoutes from './routes/adminAnalytics.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
@@ -24,6 +25,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin/stats', adminStatsRoutes);
+app.use('/api/admin/analytics', adminAnalyticsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Indieora backend running");
