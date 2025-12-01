@@ -16,12 +16,14 @@ import categoryRoutes from './routes/categories.js';
 import settingsRoutes from './routes/settings.js';
 import uploadRoutes from './routes/upload.js';
 import authRoutes from './routes/auth.js';
+import adminStatsRoutes from './routes/adminStats.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/admin/stats', adminStatsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Indieora backend running");
