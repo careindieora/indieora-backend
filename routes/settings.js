@@ -1,35 +1,41 @@
-import express from "express";
-import Settings from "../models/Settings.js";
-import verifyToken from "../middleware/verifyToken.js";
+// routes/settings.js
+import express from 'express';
+import Settings from '../models/Settings.js';
+import verifyToken from '../middleware/verifyToken.js';
 
 const router = express.Router();
 
-// Get settings
-router.get("/", async (req, res) => {
+// GET settings (public)
+router.get('/', async (req, res) => {
   try {
-    const settings = await Settings.findOne();
-    res.json(settings || {});
+    let s = await Settings.findOne().lean();
+    if (!s) {
+      s = new Settings();
+      await s.save();
+      s = s.toObject();
+    }
+    res.json(s);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('settings:get', err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Update settings
-router.put("/", verifyToken, async (req, res) => {
+// PUT update settings (protected)
+router.put('/', verifyToken, async (req, res) => {
   try {
-    let settings = await Settings.findOne();
+    // optional: restrict to admin role
+    if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Forbidden' });
 
-    if (!settings) {
-      settings = new Settings(req.body);
-    } else {
-      Object.assign(settings, req.body);
-    }
+    let s = await Settings.findOne();
+    if (!s) s = new Settings(req.body);
+    else Object.assign(s, req.body);
 
-    await settings.save();
-
-    res.json({ success: true, settings });
+    await s.save();
+    res.json({ success: true, settings: s });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('settings:update', err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
