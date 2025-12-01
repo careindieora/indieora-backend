@@ -6,22 +6,32 @@ import cloudinary from '../config/cloudinary.js';
 import verifyToken from '../middleware/verifyToken.js';
 
 const router = express.Router();
-const upload = multer(); // memory
+const upload = multer(); // memory storage
 
-router.post('/', verifyToken, upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ message: 'No file' });
-    const bufferStream = streamifier.createReadStream(req.file.buffer);
-    const streamUpload = (stream) => new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream({ folder: 'indieora' }, (error, result) => {
-        if (result) resolve(result);
-        else reject(error);
-      });
-      stream.pipe(uploadStream);
+function streamUpload(reqFile) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream({ folder: 'indieora' }, (error, result) => {
+      if (result) resolve(result);
+      else reject(error);
     });
-    const result = await streamUpload(bufferStream);
-    res.json({ url: result.secure_url, raw: result });
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Upload failed' }); }
+    streamifier.createReadStream(reqFile.buffer).pipe(stream);
+  });
+}
+
+// Accept multiple files with field name "images"
+router.post('/', verifyToken, upload.array('images'), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) return res.status(400).json({ message: 'No files' });
+    const uploaded = [];
+    for (const f of req.files) {
+      const r = await streamUpload(f);
+      uploaded.push({ url: r.secure_url, raw: r });
+    }
+    res.json({ uploaded });
+  } catch (err) {
+    console.error('upload', err);
+    res.status(500).json({ message: 'Upload error' });
+  }
 });
 
 export default router;
