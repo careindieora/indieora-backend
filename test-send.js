@@ -1,15 +1,13 @@
-// test-send.js
+// test-send.js -- run locally to verify email sending
 import dotenv from 'dotenv';
 dotenv.config();
-import { sendOtpEmail } from './path/to/your/helper.js'; // point to the file where you defined sendOtpEmail
 
-(async ()=>{
-  try {
-    const info = await sendOtpEmail('you@yourdomain.com', '123456'); // test recipient
-    console.log('sent', info);
-    process.exit(0);
-  } catch (err) {
-    console.error('send failed', err);
-    process.exit(1);
-  }
+import { sendOtpEmail } from './utils/email.js';
+
+(async()=>{
+  const to = process.env.TEST_EMAIL || 'sonivedang7@gmail.com';
+  const otp = Math.floor(100000 + Math.random()*900000).toString();
+  const r = await sendOtpEmail(to, otp);
+  console.log('RESULT:', r);
+  process.exit(0);
 })();
