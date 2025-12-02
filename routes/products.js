@@ -26,6 +26,18 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET by slug
+router.get('/slug/:slug', async (req, res) => {
+  try {
+    const p = await Product.findOne({ slug: req.params.slug }).lean();
+    if (!p) return res.status(404).json({ message: 'Not found' });
+    res.json(p);
+  } catch (err) {
+    console.error('products:get-by-slug', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // GET single
 router.get('/:id', async (req, res) => {
   try {
