@@ -1,97 +1,136 @@
-// indieora-backend/routes/auth.js
+// routes/auth.js
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import User from '../models/User.js';
 import verifyToken from '../middleware/verifyToken.js';
+import { sendOtpEmail, initSendGrid } from '../utils/email.js';
 
 const router = express.Router();
+initSendGrid();
 
-// helper: sign token
+// helper: sign JWT
 function signToken(user) {
-  return jwt.sign({ id: user._id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(
+    { id: user._id, email: user.email, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
 }
 
-// helper: send OTP email (or console)
-export async function sendOtpEmail(toEmail, otp) {
-  if (process.env.SMTP_HOST && process.env.SMTP_USER) {
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-    });
-    const from = process.env.FROM_EMAIL || process.env.SMTP_USER;
-    await transporter.sendMail({
-      from,
-      to: toEmail,
-      subject: 'Your Indieora verification code',
-      text: `Your OTP code is ${otp}. It expires in 10 minutes.`,
-      html: `<p>Your OTP code is <strong>${otp}</strong>. It expires in 10 minutes.</p>`
-    });
-  } else {
-    // no SMTP configured — log for dev
-    console.log(`[DEV OTP] sendOtpEmail -> ${toEmail} : ${otp}`);
-  }
+// Small OTP generator
+function generateOtp() {
+  return (Math.floor(100000 + Math.random() * 900000)).toString();
 }
 
-// POST /register
+/**
+ * POST /api/auth/register
+ * - If email not present: create user + otp
+ * - If email exists and not verified: update OTP and password (if provided)
+ * - If email exists and verified: return 400 (already registered)
+ * Responds immediately (non-blocking) and sends email in background.
+ */
 router.post('/register', async (req, res) => {
-  console.log('--- register request hit ---');
   console.log('REGISTER BODY:', req.body);
-
   try {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, phone } = req.body || {};
     if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
 
-    // create the user & OTP (save to DB)
-    const otp = (Math.floor(100000 + Math.random() * 900000)).toString();
-    const user = new User({ name, email, phone, passwordHash: 'temp', otpCode: otp, otpExpires: Date.now() + 10*60*1000 });
-    await user.save();
+    let user = await User.findOne({ email });
 
-    // respond IMMEDIATELY
-    res.json({ success: true, message: 'Registered. OTP will be sent shortly (dev-mode).' });
+    const otp = generateOtp();
+    const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    // send email in background (non-blocking)
+    if (user && user.emailVerified) {
+      return res.status(400).json({ message: 'Email already registered' });
+    }
+
+    if (user && !user.emailVerified) {
+      // Update existing unverified user
+      user.otpCode = otp;
+      user.otpExpires = otpExpires;
+      if (password) {
+        const salt = await bcrypt.genSalt(10);
+        user.passwordHash = await bcrypt.hash(password, salt);
+      }
+      user.name = name || user.name;
+      user.phone = phone || user.phone;
+      await user.save();
+    } else {
+      // New user
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+      user = new User({
+        name,
+        email,
+        phone,
+        passwordHash,
+        emailVerified: false,
+        otpCode: otp,
+        otpExpires
+      });
+      await user.save();
+    }
+
+    // Respond quickly so frontend doesn't wait for email
+    res.json({ success: true, message: 'Registered. OTP will be sent shortly.' });
+
+    // Send OTP in background
     (async () => {
       try {
-        await sendOtpEmail(email, otp); // your helper
-        console.log('Background OTP sent to', email);
-      } catch (e) {
-        console.error('Background send failed', e);
+        const result = await sendOtpEmail(user.email, otp);
+        if (result && result.ok) {
+          console.log('OTP sent (background) to', user.email, result.statusCode || '');
+        } else {
+          console.log('OTP fallback/logged for', user.email);
+        }
+      } catch (err) {
+        console.error('Background sendOtpEmail failed for', user.email, err && err.message ? err.message : err);
       }
     })();
 
   } catch (err) {
     console.error('auth:register error', err);
-    res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
-// POST /auth/send-otp  (resend)
+/**
+ * POST /api/auth/send-otp
+ * Resend OTP for existing (unverified) user.
+ */
 router.post('/send-otp', async (req, res) => {
   try {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ message: 'Email required' });
+
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.emailVerified) return res.status(400).json({ message: 'Email already verified' });
 
-    const otp = (Math.floor(100000 + Math.random() * 900000)).toString();
+    const otp = generateOtp();
     user.otpCode = otp;
-    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    user.otpExpires = Date.now() + 10 * 60 * 1000;
     await user.save();
 
-    await sendOtpEmail(email, otp);
-    res.json({ success: true, message: 'OTP resent' });
+    // send and wait here (client expects confirmation)
+    try {
+      await sendOtpEmail(email, otp);
+      return res.json({ success: true, message: 'OTP resent' });
+    } catch (err) {
+      console.error('send-otp send failed', err);
+      return res.status(500).json({ message: 'Failed to send OTP' });
+    }
   } catch (err) {
     console.error('auth:send-otp', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// POST /auth/verify-otp
+/**
+ * POST /api/auth/verify-otp
+ * Verify OTP and mark emailVerified true, then return JWT + user info.
+ */
 router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body || {};
@@ -101,26 +140,29 @@ router.post('/verify-otp', async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     if (!user.otpCode || !user.otpExpires) return res.status(400).json({ message: 'No OTP found. Request a new one.' });
-    if (new Date() > new Date(user.otpExpires)) return res.status(400).json({ message: 'OTP expired. Request a new one.' });
+    if (Date.now() > new Date(user.otpExpires).getTime()) return res.status(400).json({ message: 'OTP expired. Request a new one.' });
     if (user.otpCode !== otp) return res.status(400).json({ message: 'Invalid OTP' });
 
-    // mark verified and clear otp
     user.emailVerified = true;
     user.otpCode = null;
     user.otpExpires = null;
     await user.save();
 
-    // Optionally sign token
     const token = signToken(user);
-    res.json({ success: true, token, user: { id: user._id, name: user.name, email: user.email, phone: user.phone } });
+    res.json({
+      success: true,
+      token,
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role }
+    });
   } catch (err) {
     console.error('auth:verify-otp', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// login unchanged (but we will allow only if emailVerified === true — optional)
-// POST /login
+/**
+ * POST /api/auth/login
+ */
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -132,18 +174,23 @@ router.post('/login', async (req, res) => {
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
 
-    // optional: require verification
     if (!user.emailVerified) return res.status(403).json({ message: 'Email not verified. Please verify using the OTP sent to your email.' });
 
     const token = signToken(user);
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role } });
+    res.json({
+      token,
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role }
+    });
   } catch (err) {
     console.error('auth:login', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// GET /me
+/**
+ * GET /api/auth/me
+ * Protected
+ */
 router.get('/me', verifyToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-passwordHash').lean();
@@ -155,7 +202,11 @@ router.get('/me', verifyToken, async (req, res) => {
   }
 });
 
-// PUT /profile
+/**
+ * PUT /api/auth/profile
+ * Protected: update name/email/phone
+ * If email changed, mark emailVerified=false (you may want to send OTP here)
+ */
 router.put('/profile', verifyToken, async (req, res) => {
   try {
     const { name, email, phone } = req.body || {};
@@ -166,8 +217,8 @@ router.put('/profile', verifyToken, async (req, res) => {
       const exists = await User.findOne({ email });
       if (exists) return res.status(400).json({ message: 'Email already in use' });
       user.email = email;
-      user.emailVerified = false; // require re-verification if email changed
-      // generate OTP & sending not implemented here — you can call sendOtp if you want
+      user.emailVerified = false; // require re-verification
+      // optionally: generate OTP & send — we leave that to a separate endpoint
     }
     if (name) user.name = name;
     if (phone) user.phone = phone;
