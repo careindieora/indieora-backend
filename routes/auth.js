@@ -15,7 +15,7 @@ function signToken(user) {
 }
 
 // helper: send OTP email (or console)
-async function sendOtpEmail(toEmail, otp) {
+export async function sendOtpEmail(toEmail, otp) {
   if (process.env.SMTP_HOST && process.env.SMTP_USER) {
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
