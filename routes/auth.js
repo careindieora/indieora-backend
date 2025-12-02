@@ -39,30 +39,33 @@ export async function sendOtpEmail(toEmail, otp) {
 
 // POST /register
 router.post('/register', async (req, res) => {
+  console.log('--- register request hit ---');
+  console.log('REGISTER BODY:', req.body);
+
   try {
-    const { name, email, password, phone } = req.body || {};
+    const { name, email, password, phone } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
 
-    const exists = await User.findOne({ email });
-    if (exists) return res.status(400).json({ message: 'Email already registered' });
-
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
-
-    const user = new User({ name, email, phone, passwordHash, role: 'customer', emailVerified: false });
-    // generate OTP and expiry
-    const otp = (Math.floor(100000 + Math.random() * 900000)).toString(); // 6-digit
-    user.otpCode = otp;
-    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    // create the user & OTP (save to DB)
+    const otp = (Math.floor(100000 + Math.random() * 900000)).toString();
+    const user = new User({ name, email, phone, passwordHash: 'temp', otpCode: otp, otpExpires: Date.now() + 10*60*1000 });
     await user.save();
 
-    // send otp email
-    await sendOtpEmail(email, otp);
+    // respond IMMEDIATELY
+    res.json({ success: true, message: 'Registered. OTP will be sent shortly (dev-mode).' });
 
-    // respond (do not auto-login until verified)
-    return res.json({ success: true, message: 'Registered. OTP sent to email. Verify to activate account.' });
+    // send email in background (non-blocking)
+    (async () => {
+      try {
+        await sendOtpEmail(email, otp); // your helper
+        console.log('Background OTP sent to', email);
+      } catch (e) {
+        console.error('Background send failed', e);
+      }
+    })();
+
   } catch (err) {
-    console.error('auth:register', err);
+    console.error('auth:register error', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
