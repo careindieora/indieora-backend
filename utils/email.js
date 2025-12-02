@@ -1,51 +1,44 @@
-// indieora-backend/utils/email.js
+// utils/email.js
 import nodemailer from 'nodemailer';
 
-const makeTransporter = () => {
-  // using SMTP settings from env
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: false,
-    auth: {
-      user: process.env.SMTP_USER,       // e.g. care.indieora@gmail.com
-      pass: process.env.SMTP_PASS,       // App password (16 chars, no spaces)
-    },
-    tls: {
-      // allow self-signed certs if any (safe for dev)
-      rejectUnauthorized: false,
-    },
-  });
-};
-
+/**
+ * sendOtpEmail(to, otp)
+ * Uses SMTP credentials from env vars:
+ * SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, FROM_EMAIL
+ *
+ * NOTE: on Render/other hosts use a proper SMTP provider or Gmail app password.
+ */
 export async function sendOtpEmail(to, otp) {
   try {
-    const transporter = makeTransporter();
-
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height:1.4;">
-        <h2 style="color:#2b2b2b;">Indieora — Your OTP</h2>
-        <p>Your verification code is:</p>
-        <div style="font-size:28px; font-weight:700; letter-spacing:4px; margin:12px 0;">
-          ${otp}
-        </div>
-        <p>This code expires in 10 minutes.</p>
-        <hr/>
-        <small>If you didn't request this, ignore it.</small>
-      </div>
-    `;
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: false, // true for 465, false for 587
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
 
     const info = await transporter.sendMail({
       from: process.env.FROM_EMAIL || process.env.SMTP_USER,
       to,
-      subject: 'Your Indieora verification code',
-      html,
+      subject: 'Your Indieora OTP Code',
+      html: `
+        <div style="font-family: sans-serif; line-height: 1.4;">
+          <h2 style="margin-bottom:6px;">Hello from Indieora</h2>
+          <p>Your OTP code is:</p>
+          <p style="font-size:20px; font-weight:700; letter-spacing:1px;">${otp}</p>
+          <p style="color:#666; font-size:12px;">This code will expire in 10 minutes.</p>
+        </div>
+      `,
     });
 
-    console.log('sendOtpEmail: sent to', to, 'messageId=', info?.messageId);
+    console.log('sendOtpEmail ok:', info.messageId || info.accepted);
     return { ok: true, info };
   } catch (err) {
-    console.error('sendOtpEmail ERROR:', err && err.message ? err.message : err);
+    console.error('sendOtpEmail error:', err && err.message ? err.message : err);
+    // don't throw — auth route uses background sending; but you can surface errors if desired
     return { ok: false, error: err };
   }
 }
