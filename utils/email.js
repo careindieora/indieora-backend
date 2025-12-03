@@ -3,8 +3,6 @@ import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 dotenv.config();
 
-// Create transporter with environment variables
-// Supports Gmail (smtp.gmail.com) or any SMTP provider via env.
 function createTransporter() {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT || 587);
@@ -12,56 +10,46 @@ function createTransporter() {
   const pass = process.env.SMTP_PASS;
 
   if (!host || !user || !pass) {
-    throw new Error('SMTP credentials not configured (SMTP_HOST/SMTP_USER/SMTP_PASS)');
+    throw new Error('SMTP credentials missing (SMTP_HOST, SMTP_USER, SMTP_PASS)');
   }
 
   return nodemailer.createTransport({
     host,
     port,
-    secure: port === 465, // true for 465, false for other ports (use STARTTLS)
+    secure: port === 465,
     auth: { user, pass },
-    // increase timeouts for remote hosts
     connectionTimeout: 20000,
     greetingTimeout: 20000,
     socketTimeout: 20000,
   });
 }
 
-/**
- * Send OTP email
- * @param {string} to recipient email
- * @param {string} otp numeric OTP string
- */
 export async function sendOtpEmail(to, otp) {
   const transporter = createTransporter();
   const from = process.env.FROM_EMAIL || process.env.SMTP_USER;
-
-  const subject = 'Your Indieora verification code';
-  const text = `Your Indieora verification code is ${otp}. It expires in 5 minutes.`;
-  const html = `
-    <div style="font-family: Inter, system-ui, Arial, sans-serif; line-height:1.4; color:#111">
-      <h2 style="margin:0 0 8px">Indieora — Email verification</h2>
-      <p style="margin:0 0 12px">Use the following code to verify your email address. It will expire in 5 minutes.</p>
-      <div style="display:inline-block; padding:10px 16px; font-size:20px; letter-spacing:4px; border-radius:8px; background:#f7f7f7; color:#111; font-weight:600;">
-        ${otp}
-      </div>
-      <p style="margin-top:16px; color:#666; font-size:13px">If you did not request this code, you can ignore this email.</p>
-    </div>
-  `;
 
   try {
     const info = await transporter.sendMail({
       from,
       to,
-      subject,
-      text,
-      html,
+      subject: 'Your Indieora verification code',
+      text: `Your Indieora verification code is ${otp}. It expires in 5 minutes.`,
+      html: `
+        <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+          <h2 style="margin-bottom: 8px;">Indieora — Verify your email</h2>
+          <p>Use this code to verify your email. It expires in 5 minutes:</p>
+          <div style="display:inline-block;padding:10px 16px;border-radius:8px;background:#f4f4f5;font-size:20px;font-weight:600;letter-spacing:4px;">
+            ${otp}
+          </div>
+          <p style="margin-top:12px;font-size:12px;color:#6b7280;">
+            If you didn’t request this, you can ignore this email.
+          </p>
+        </div>
+      `,
     });
-    // nodemailer returns messageId on success
-    console.log(`OTP sent (background) to ${to}`, info && info.messageId ? info.messageId : '');
-    return info;
+
+    console.log('OTP email sent to', to, info.messageId);
   } catch (err) {
-    // helpful debug info in logs
     console.error('sendOtpEmail error:', {
       message: err?.message,
       code: err?.code,

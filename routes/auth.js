@@ -14,7 +14,6 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
 const JWT_EXPIRES = '7d';
 
-// Helper to create JWT
 function createToken(user) {
   return jwt.sign(
     { id: user._id, email: user.email, role: user.role },
@@ -26,7 +25,6 @@ function createToken(user) {
 /**
  * POST /api/auth/register
  * Body: { name, email, password, phone }
- * Creates/updates unverified user and sends OTP.
  */
 router.post('/register', async (req, res) => {
   try {
@@ -39,12 +37,10 @@ router.post('/register', async (req, res) => {
 
     let user = await User.findOne({ email: normEmail });
 
-    // if already verified user exist, block re-register
     if (user && user.verified) {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
-    // hash password
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
@@ -57,56 +53,55 @@ router.post('/register', async (req, res) => {
         verified: false,
       });
     } else {
-      // update details for existing unverified user
       user.name = name || user.name;
       user.phone = phone || user.phone;
       user.passwordHash = passwordHash;
+      user.verified = false;
     }
+
     await user.save();
 
     // generate + send OTP
+    let otp;
     try {
-      const otp = await createAndSaveOtp(normEmail);
+      otp = await createAndSaveOtp(normEmail);
       sendOtpEmail(normEmail, otp).catch((err) => {
         console.error('sendOtpEmail failed (register):', err?.message || err);
       });
     } catch (err) {
       console.error('OTP generation/send failed:', err?.message || err);
-      return res
-        .status(500)
-        .json({ message: 'Failed to generate/send OTP' });
+      return res.status(500).json({ message: 'Failed to generate/send OTP' });
     }
 
-    return res.json({
+    const payload = {
       success: true,
       message: 'Registered. OTP will be sent shortly.',
-    });
+    };
+
+    // DEBUG ONLY (optional):
+    if (process.env.DEBUG_OTP_RESPONSE === 'true') {
+      payload.debugOtp = otp;
+    }
+
+    return res.json(payload);
   } catch (err) {
     console.error('auth.register error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
 
-/**
- * Common handler for resend / send-otp
- */
+// common handler for send-otp + resend-otp
 async function handleSendOtp(req, res) {
   try {
     const { email } = req.body || {};
-    if (!email) {
-      return res.status(400).json({ message: 'Email required' });
-    }
+    if (!email) return res.status(400).json({ message: 'Email required' });
 
     const normEmail = String(email).trim().toLowerCase();
 
     const user = await User.findOne({ email: normEmail });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
     if (user.verified) {
-      return res
-        .status(400)
-        .json({ message: 'User already verified' });
+      return res.status(400).json({ message: 'User already verified' });
     }
 
     const otp = await createAndSaveOtp(normEmail);
@@ -114,28 +109,23 @@ async function handleSendOtp(req, res) {
       console.error('sendOtpEmail failed (send-otp):', err?.message || err);
     });
 
-    return res.json({
+    const payload = {
       success: true,
       message: 'OTP sent / resent successfully.',
-    });
+    };
+    if (process.env.DEBUG_OTP_RESPONSE === 'true') {
+      payload.debugOtp = otp;
+    }
+
+    return res.json(payload);
   } catch (err) {
     console.error('auth.send-otp error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 }
 
-/**
- * POST /api/auth/resend-otp
- * Body: { email }
- */
 router.post('/resend-otp', handleSendOtp);
-
-/**
- * POST /api/auth/send-otp
- * Body: { email }
- * (Alias for resend-otp so old frontend code works)
- */
-router.post('/send-otp', handleSendOtp);
+router.post('/send-otp', handleSendOtp); // alias for old frontend
 
 /**
  * POST /api/auth/verify-otp
@@ -149,19 +139,17 @@ router.post('/verify-otp', async (req, res) => {
     }
 
     const normEmail = String(email).trim().toLowerCase();
-    const result = await verifyOtp(normEmail, String(otp).trim());
+    const check = await verifyOtp(normEmail, String(otp).trim());
 
-    if (!result.ok) {
+    if (!check.ok) {
       return res.status(400).json({
         message: 'OTP verification failed',
-        reason: result.reason || 'invalid',
+        reason: check.reason || 'invalid',
       });
     }
 
     const user = await User.findOne({ email: normEmail });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     user.verified = true;
     await user.save();
@@ -191,9 +179,7 @@ router.post('/login', async (req, res) => {
 
     const normEmail = String(email).trim().toLowerCase();
     const user = await User.findOne({ email: normEmail });
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
     if (!user.verified) {
       return res
@@ -201,10 +187,8 @@ router.post('/login', async (req, res) => {
         .json({ message: 'Email not verified. Please verify with OTP.' });
     }
 
-    const isValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isValid) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
 
     const token = createToken(user);
     return res.json({
