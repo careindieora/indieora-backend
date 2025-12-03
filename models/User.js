@@ -1,15 +1,13 @@
-// indieora-backend/models/User.js
+// models/User.js
 import mongoose from 'mongoose';
 
 const UserSchema = new mongoose.Schema({
   name: { type: String },
-  email: { type: String, required: true, unique: true },
-  passwordHash: { type: String, required: true },
+  email: { type: String, required: true, unique: true, index: true },
   phone: { type: String },
+  passwordHash: { type: String, required: true },
+  verified: { type: Boolean, default: false }, // whether OTP verified
   role: { type: String, default: 'customer' },
-  emailVerified: { type: Boolean, default: false },
-  otpCode: { type: String, default: null },
-  otpExpires: { type: Date, default: null },
 }, { timestamps: true });
 
 export default mongoose.model('User', UserSchema);
